@@ -15,6 +15,11 @@ const getState = () => {
             todaySellCash:0,
             previousSellCash:0,
             todayOldCashUsed:0,
+            sellCashLogDate:'',
+            sellCashBlockCount:0,
+            sellCashClipCount:0,
+            sellCashBlockLogged:false,
+            sellCashClipLogged:false,
         };
     }
     return globalval.assetBuyGate;
@@ -47,6 +52,11 @@ const initCashForDay = (account, chartdata, getCanUseCashAmount) => {
     state.todayStartCanUseCash = getCanUseCashAmount(account);
     state.todaySellCash = 0;
     state.todayOldCashUsed = 0;
+    state.sellCashLogDate = ymd;
+    state.sellCashBlockCount = 0;
+    state.sellCashClipCount = 0;
+    state.sellCashBlockLogged = false;
+    state.sellCashClipLogged = false;
     globalval.assetBuyGatePreviousSellCash = state.previousSellCash;
     globalval.assetBuyGateTodayCashDate = state.todayCashDate;
     globalval.assetBuyGateTodayStartCanUseCash = state.todayStartCanUseCash;
@@ -148,16 +158,34 @@ const getAllowedBuyAmount = ({
         return requestedBuyAmount;
 
     const allowedBuyAmount = Math.floor(oldCashRemaining / buyMoneyByOneStock);
+    const state = getState();
+    const isClip = (buyMoneyByOneStock * allowedBuyAmount) > 0;
+    const countKey = isClip ? 'sellCashClipCount' : 'sellCashBlockCount';
+    const loggedKey = isClip ? 'sellCashClipLogged' : 'sellCashBlockLogged';
+    state[countKey] = (state[countKey] || 0) + 1;
     if(useconsolelog && addSimulationLog)
     {
         const condition = getConditionState(totalcapital);
         const yChange = Number.isFinite(condition.state.yesterdayChangePer) ? GetChangePerLog(condition.state.yesterdayChangePer) : '-';
         const oldRemain = getOldCashRemaining();
         const carryLock = getCarryLockedCash();
-        const tag = (buyMoneyByOneStock * allowedBuyAmount) > 0 ? 'ASSET_BUY_GATE_SELLCASH_CLIP' : 'ASSET_BUY_GATE_SELLCASH_BLOCK';
-        addSimulationLog(`[${tag}] ${timeString} ${reason} ${ticker} ${name} H:${condition.hasHistory ? 'Y' : 'N'} Y:${condition.yesterdayUp ? 'KEEP' : 'DN'}(${condition.state.yesterdayDate || '-'}/${yChange}) T:${condition.todayUp ? 'KEEP' : 'DN'} start:${Math.round(condition.startCapital)} cur:${Math.round(totalcapital)} cash:${Math.round(canusecashamount)} oldRemain:${Math.round(oldRemain)} carryLock:${Math.round(carryLock)} todaySell:${Math.round(condition.state.todaySellCash || 0)} req:${Math.round(requestedBuyMoney)} allow:${Math.round(buyMoneyByOneStock * allowedBuyAmount)}`);
+        const tag = isClip ? 'ASSET_BUY_GATE_SELLCASH_CLIP_START' : 'ASSET_BUY_GATE_SELLCASH_BLOCK_START';
+        if(!condition.state[loggedKey])
+        {
+            condition.state[loggedKey] = true;
+            addSimulationLog(`[${tag}] ${timeString} ${reason} ${ticker} ${name} H:${condition.hasHistory ? 'Y' : 'N'} Y:${condition.yesterdayUp ? 'KEEP' : 'DN'}(${condition.state.yesterdayDate || '-'}/${yChange}) T:${condition.todayUp ? 'KEEP' : 'DN'} start:${Math.round(condition.startCapital)} cur:${Math.round(totalcapital)} cash:${Math.round(canusecashamount)} oldRemain:${Math.round(oldRemain)} carryLock:${Math.round(carryLock)} todaySell:${Math.round(condition.state.todaySellCash || 0)} req:${Math.round(requestedBuyMoney)} allow:${Math.round(buyMoneyByOneStock * allowedBuyAmount)}`);
+        }
     }
     return allowedBuyAmount;
+}
+
+const getSellCashGateSummary = () => {
+    const state = getState();
+    return {
+        date: state.sellCashLogDate || state.todayCashDate || '',
+        blocked: state.sellCashBlockCount || 0,
+        clipped: state.sellCashClipCount || 0,
+    };
 }
 
 const getBuyBlockLogFields = (totalcapital) => {
@@ -180,4 +208,5 @@ module.exports = {
     shouldSkipJiJiBuJinShort,
     getAllowedBuyAmount,
     getBuyBlockLogFields,
+    getSellCashGateSummary,
 };

@@ -54,7 +54,9 @@ const defulatConfig = {
     
     autosimulation : process.env.simmulationfunc ? process.env.simmulationfunc === "dailysimulation" ? true : false : false,
     simulationstartdate : process.env.simulationstartdate ? new Date(`${process.env.simulationstartdate}`) : new Date(`${'2022-10-26'}`),//new Date(`${'2025-02-05'}`),//
-    simulationenddate : process.env.simulationenddate ? new Date(`${process.env.simulationenddate}`) : new Date(`${'2026-05-29'}`),
+    simulationenddate : process.env.simulationenddate
+        ? (process.env.simulationenddate === 'current' ? new Date() : new Date(`${process.env.simulationenddate}`))
+        : new Date(`${'2026-05-29'}`),
     simulationoneday : JSON.parse(process.env.simulationoneday ? process.env.simulationoneday : false),
     useconsolelog : JSON.parse(process.env.useconsolelog ? process.env.useconsolelog : false),
     usememcached : JSON.parse(process.env.usememcached ? process.env.usememcached : false),
@@ -287,9 +289,9 @@ const defulatConfig = {
     port:process.env.PORT ? Number(process.env.PORT) : 4091,//4017,
     usetrademarkrsi:JSON.parse(process.env.usetrademarkrsi ? process.env.usetrademarkrsi : true),
     usejijibujinsell:JSON.parse(process.env.usejijibujinsell ? process.env.usejijibujinsell : true),
+    useprofitgivebacksell:process.env.useprofitgivebacksell ? process.env.useprofitgivebacksell : '',
 
     usedoublehalfallsell:false,
-    useprofitgivebacksell:'base',
     useearlyprofitlocksell:process.env.useearlyprofitlocksell ? process.env.useearlyprofitlocksell : '',
     useearlyprofitlockcash:process.env.useearlyprofitlockcash ? process.env.useearlyprofitlockcash : '',
     usemarketstrengthbuyfilter:process.env.usemarketstrengthbuyfilter ? process.env.usemarketstrengthbuyfilter : '',

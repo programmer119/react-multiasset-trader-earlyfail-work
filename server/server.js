@@ -2530,6 +2530,7 @@ let kosdaqlogs = [];
 let monthidx = 0;
 let initkospirate = 0;
 let initkosdaqrate = 0;
+let simulationTopstockTickers = new Set();
 async function printaccountsimulation(today, tradestockdic)
 {
 
@@ -2562,6 +2563,32 @@ async function printaccountsimulation(today, tradestockdic)
     const logperkospi = GetChangePerLog(changedperkospi);
     const changedperkosdaq = GetChangePer(kosdaqclosebef,kosdaqclose);    
     const logperkosdaq = GetChangePerLog(changedperkosdaq);    
+
+    const topstockUp = {
+        kospi: {up:0, total:0},
+        kosdaq: {up:0, total:0},
+    };
+    simulationTopstockTickers.forEach(ticker=>{
+        const tradestock = tradestockdic[ticker];
+        if(!tradestock || !tradestock.chartdatas)
+            return;
+        const idx = tradestock.curchartdataidx;
+        const current = tradestock.chartdatas[idx];
+        const previous = tradestock.chartdatas[idx-1];
+        if(!current || !previous || !Number.isFinite(Number(current.close)) || !Number.isFinite(Number(previous.close)))
+            return;
+
+        const market = String(tradestock.name || '').includes('KOSPI')
+            ? topstockUp.kospi
+            : (String(tradestock.name || '').includes('KOSDAQ') ? topstockUp.kosdaq : null);
+        if(!market)
+            return;
+        ++market.total;
+        if(Number(current.close) > Number(previous.close))
+            ++market.up;
+    });
+    const topstockKospiUpRate = topstockUp.kospi.total > 0 ? topstockUp.kospi.up / topstockUp.kospi.total * 100 : 0;
+    const topstockKosdaqUpRate = topstockUp.kosdaq.total > 0 ? topstockUp.kosdaq.up / topstockUp.kosdaq.total * 100 : 0;
     
  
     const curyear = today.slice(0,4);
@@ -2595,10 +2622,17 @@ async function printaccountsimulation(today, tradestockdic)
         rtickersfastcnt = [];
     }
     SetInjurance(g_accountsimulation, beforetotalcapital - totalcapital);
-    const printlog = `${today}(${seestockstr}) ${logper}% VS KP:${logperkospi}% KD:${logperkosdaq}% ₩${(totalcapital).toFixed()}=stock(₩${stocktotalmoney.toFixed()})+money(₩${moneytotalmoney.toFixed()})+injurancetotalmoney(₩${injurancetotalmoney.toFixed()})  stockkind:${stockkind} traded:${logtraded} ${monthperlog}`;
+    const printlog = `${today}(${seestockstr}) ${logper}% VS KP:${logperkospi}% KD:${logperkosdaq}% ₩${(totalcapital).toFixed()}=stock(₩${stocktotalmoney.toFixed()})+money(₩${moneytotalmoney.toFixed()})+injurancetotalmoney(₩${injurancetotalmoney.toFixed()}) TOPUP KP:${topstockUp.kospi.up}/${topstockUp.kospi.total}=${topstockKospiUpRate.toFixed(2)}% KD:${topstockUp.kosdaq.up}/${topstockUp.kosdaq.total}=${topstockKosdaqUpRate.toFixed(2)}% stockkind:${stockkind} traded:${logtraded} ${monthperlog}`;
     longshortcount = {};
     if(!defulatConfig.usesinglesimulation)
+    {
         AddSimulationLog(printlog);
+        if(defulatConfig.useassetupsellcashgate)
+        {
+            const sellCashSummary = assetBuyGate.getSellCashGateSummary();
+            AddSimulationLog(`[ASSET_BUY_GATE_SELLCASH_SUMMARY] ${today} blocked:${sellCashSummary.blocked} clipped:${sellCashSummary.clipped}`);
+        }
+    }
     
     //g_accountsimulation['a0'].totalcapital = totalcapital;
     beforeyear = curyear;
@@ -2941,6 +2975,7 @@ const serversimulation=async(req,res,oneday)=>{
             printpassedtimelog = '';
             printpassedtimelog += GetPassedTime(`LIST ${today}`);
             seestockstr = _seestockstr;
+            simulationTopstockTickers = new Set(sendTickers.map(ticker=>IsNaq(req.query.db_id) ? String(ticker).toUpperCase() : String(ticker).toLowerCase()));
             // console.log(`sstocksrt :${new Date().getMinutes()}:${new Date().getSeconds()}`)
             let tickers = Object.entries(g_accountsimulation).reduce(function(accum,current){ if (current[0] !== "a0" && current[1].amount > 0) accum.push(`${IsNaq(req.query.db_id)?current[0].toUpperCase():current[0].toLowerCase()}`); return accum},[])
             tickers = tickers.concat(sendTickers.reduce(function(accum,current){ accum.push(`${IsNaq(req.query.db_id)?current.toUpperCase():current.toLowerCase()}`); return accum},[]));
