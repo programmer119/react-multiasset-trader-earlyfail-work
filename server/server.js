@@ -2442,6 +2442,171 @@ let stockkind = 0;
 let assetCrashReboundDownStartCapital = 0;
 let assetCrashReboundDownDays = 0;
 
+const SALARY_PAYOUT_OPTIONS = {
+    none: {rate:0, label:'급여지급 없음'},
+    monthly1: {rate:0.01, label:'월 1% 지급'},
+    yearly12: {rate:0.12, label:'연 12% 지급'},
+    weekly025: {rate:0.0025, label:'주 0.25% 지급'},
+};
+
+let salaryPayoutState = null;
+
+const ResetSalaryPayoutState=()=>{
+    salaryPayoutState = {
+        mode:defulatConfig.salaryPayoutMode || 'none',
+        pending:[],
+        completed:[],
+        dueKeys:new Set(),
+        seq:0,
+        totalScheduled:0,
+        totalPaid:0,
+    };
+}
+
+const IsSalaryPayoutEnabled=()=>{
+    return !!(defulatConfig.salaryPayoutMode && defulatConfig.salaryPayoutMode !== 'none' && SALARY_PAYOUT_OPTIONS[defulatConfig.salaryPayoutMode]);
+}
+
+const GetDateOnly=(date)=>new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const GetSalaryWeekKey=(date)=>{
+    const d = GetDateOnly(date);
+    const day = d.getDay();
+    const diffToMonday = (day + 6) % 7;
+    d.setDate(d.getDate() - diffToMonday);
+    return GetYMD(d);
+}
+
+const IsSalaryPayoutDue=(todayDate, nextOpenDate)=>{
+    if(!IsSalaryPayoutEnabled() || !nextOpenDate)
+        return false;
+
+    const mode = defulatConfig.salaryPayoutMode;
+    if(mode === 'monthly1')
+        return todayDate.getFullYear() !== nextOpenDate.getFullYear() || todayDate.getMonth() !== nextOpenDate.getMonth();
+    if(mode === 'yearly12')
+        return todayDate.getFullYear() !== nextOpenDate.getFullYear();
+    if(mode === 'weekly025')
+        return GetSalaryWeekKey(todayDate) !== GetSalaryWeekKey(nextOpenDate);
+    return false;
+}
+
+const GetSalaryDelayDays=(dueDate, payDate)=>{
+    const due = new Date(`${String(dueDate).slice(0,4)}-${String(dueDate).slice(4,6)}-${String(dueDate).slice(6,8)}T00:00:00`);
+    const pay = new Date(`${String(payDate).slice(0,4)}-${String(payDate).slice(4,6)}-${String(payDate).slice(6,8)}T00:00:00`);
+    if(isNaN(due.getTime()) || isNaN(pay.getTime()))
+        return 0;
+    return Math.max(0, Math.floor((pay - due) / (24 * 60 * 60 * 1000)));
+}
+
+const GetSalaryPayoutLabel=(mode)=>SALARY_PAYOUT_OPTIONS[mode] ? SALARY_PAYOUT_OPTIONS[mode].label : mode;
+
+const GetSalaryCashAccount=()=>g_accountsimulation ? g_accountsimulation['a0'] : null;
+
+const ScheduleSalaryPayoutIfDue=async(today, todayDate, nextOpenDate, baseAsset)=>{
+    if(!IsSalaryPayoutDue(todayDate, nextOpenDate))
+        return;
+    if(!salaryPayoutState)
+        ResetSalaryPayoutState();
+
+    const mode = defulatConfig.salaryPayoutMode;
+    const key = `${mode}:${today}`;
+    if(salaryPayoutState.dueKeys.has(key))
+        return;
+
+    const option = SALARY_PAYOUT_OPTIONS[mode];
+    const scheduledAmount = Math.max(0, Math.floor(Number(baseAsset || 0) * option.rate));
+    salaryPayoutState.dueKeys.add(key);
+    if(scheduledAmount <= 0)
+        return;
+
+    const item = {
+        id:++salaryPayoutState.seq,
+        mode,
+        label:GetSalaryPayoutLabel(mode),
+        dueDate:today,
+        baseAsset:Math.floor(Number(baseAsset || 0)),
+        scheduledAmount,
+        paidAmount:0,
+        payments:[],
+        completedDate:'',
+    };
+    salaryPayoutState.pending.push(item);
+    salaryPayoutState.totalScheduled += scheduledAmount;
+    AddSimulationLog(`[SALARY_PAYOUT_DUE] due:${today} mode:${mode} label:${item.label} baseAsset:${item.baseAsset} scheduled:${scheduledAmount}`);
+}
+
+const TrySalaryPayout=(today, ctime, reason='')=>{
+    if(!IsSalaryPayoutEnabled() || !salaryPayoutState || !salaryPayoutState.pending.length)
+        return;
+
+    const cash = GetSalaryCashAccount();
+    if(!cash)
+        return;
+
+    let available = Math.max(0, Math.floor(Number(cash.amount || 0)));
+    if(available <= 0)
+        return;
+
+    const stillPending = [];
+    for(const item of salaryPayoutState.pending)
+    {
+        let remaining = item.scheduledAmount - item.paidAmount;
+        if(remaining <= 0)
+            continue;
+
+        if(available <= 0)
+        {
+            stillPending.push(item);
+            continue;
+        }
+
+        const payAmount = Math.min(available, remaining);
+        if(payAmount > 0)
+        {
+            cash.amount -= payAmount;
+            available -= payAmount;
+            item.paidAmount += payAmount;
+            salaryPayoutState.totalPaid += payAmount;
+            remaining = item.scheduledAmount - item.paidAmount;
+            const delayDays = GetSalaryDelayDays(item.dueDate, today);
+            item.payments.push({payDate:today, time:ctime, amount:payAmount, delayDays, reason});
+            AddSimulationLog(`[SALARY_PAYOUT_PAY] due:${item.dueDate} pay:${today} time:${ctime} mode:${item.mode} delayDays:${delayDays} amount:${Math.floor(payAmount)} paid:${Math.floor(item.paidAmount)} remaining:${Math.floor(remaining)} cash:${Math.floor(cash.amount)} reason:${reason}`);
+        }
+
+        if(remaining > 0)
+            stillPending.push(item);
+        else
+        {
+            item.completedDate = today;
+            salaryPayoutState.completed.push(item);
+        }
+    }
+    salaryPayoutState.pending = stillPending;
+}
+
+const AddSalaryPayoutFinalLog=()=>{
+    if(!salaryPayoutState || (!salaryPayoutState.totalScheduled && !salaryPayoutState.totalPaid))
+        return;
+    const unpaid = salaryPayoutState.pending.reduce((sum, item)=>sum + Math.max(0, item.scheduledAmount - item.paidAmount), 0);
+    AddSimulationLog(`[SALARY_PAYOUT_TOTAL] mode:${salaryPayoutState.mode} scheduled:${Math.floor(salaryPayoutState.totalScheduled)} paid:${Math.floor(salaryPayoutState.totalPaid)} unpaid:${Math.floor(unpaid)} completed:${salaryPayoutState.completed.length} pending:${salaryPayoutState.pending.length}`);
+}
+
+const FindNextOpenDateForSalary=async(fromDate, dbid, refOpenDayCheck)=>{
+    if(!refOpenDayCheck)
+        return null;
+    const nextDate = new Date(fromDate);
+    for(let i = 0; i < 20; ++i)
+    {
+        nextDate.setDate(nextDate.getDate()+1);
+        const isopenday = await refOpenDayCheck(nextDate, dbid);
+        if(isopenday)
+            return new Date(nextDate);
+    }
+    return null;
+}
+
+
 async function CacuTotalCapitalPromise(element, today, tradestockdic)
 {
     return new Promise((resolve, reject) =>         
@@ -2468,8 +2633,8 @@ async function CacuTotalCapitalPromise(element, today, tradestockdic)
                         connd.release();
                         if(!data || !data[0])
                         {
-                            price = element[1].latestclose;
-                            stocktotalmoney += Number(price) * amount;
+                            price = 0;//element[1].latestclose;
+                            // stocktotalmoney += Number(price) * amount;
                             console.log(`CacuTotalCapitalPromiseError ${ticker} ${today}`);
                         }
                         else
@@ -2627,10 +2792,10 @@ async function printaccountsimulation(today, tradestockdic)
     if(!defulatConfig.usesinglesimulation)
     {
         AddSimulationLog(printlog);
-        if(defulatConfig.useassetupsellcashgate)
+        if(assetBuyGate.isCashTrackingEnabled())
         {
             const sellCashSummary = assetBuyGate.getSellCashGateSummary();
-            AddSimulationLog(`[ASSET_BUY_GATE_SELLCASH_SUMMARY] ${today} blocked:${sellCashSummary.blocked} clipped:${sellCashSummary.clipped}`);
+            AddSimulationLog(`[TODAY_SELL_CASH_SUMMARY] ${today} blocked:${sellCashSummary.blocked} clipped:${sellCashSummary.clipped}`);
         }
     }
     
@@ -3099,6 +3264,9 @@ const serversimulation=async(req,res,oneday)=>{
                     const useRealTradeDetailProfile = process.env.realtradeprofile === 'true';
                     globalval.earlyprofitlockbeforetotalcapital = beforetotalcapital;
                     assetBuyGate.setTodayStartCapital(beforetotalcapital);
+                    const nextOpenDateForSalary = await FindNextOpenDateForSalary(curtime, req.query.db_id, RefOpendayCheck);
+                    await ScheduleSalaryPayoutIfDue(today, curtime, nextOpenDateForSalary, beforetotalcapital);
+                    TrySalaryPayout(today, opentimestr.replace(':', ''), 'open');
                     const tradeLoopStartTime = Date.now();
                     let minuteApplyTime = 0;
                     let markStockTime = 0;
@@ -3195,6 +3363,8 @@ const serversimulation=async(req,res,oneday)=>{
                         if(g_accountsimulation[ticker].preserveBuyTime)
                             delete g_accountsimulation[ticker].preserveBuyTime;
                         g_accountsimulation['a0'].amount += Number(addMoney);
+                        if(addMoney > 0)
+                            TrySalaryPayout(today, ctime, 'cash-after-sell');
                         minutelongshort = g_accountsimulation[ticker].macdlongshort;
                         CaculateAllStockCapitalValue(g_accountsimulation, tradestockdic);
                     }
@@ -3314,6 +3484,8 @@ const serversimulation=async(req,res,oneday)=>{
                             cacuProfileRsi += globalval.cacuOnedayProfile.rsi;
                             cacuProfileSto += globalval.cacuOnedayProfile.sto;
                         }
+
+                        TrySalaryPayout(today, ctime, 'minute-end');
 
                         curtime.setMinutes(curtime.getMinutes()+1);
                         ++timeindex;
@@ -3445,6 +3617,7 @@ const serversimulation=async(req,res,oneday)=>{
     // else
         console.log(`[BASELINE_TRACE] Initaccountsimulation before ${new Date().toISOString()}`);
         Initaccountsimulation(true, req.query.db_id);
+        ResetSalaryPayoutState();
         console.log(`[BASELINE_TRACE] Initaccountsimulation after ${new Date().toISOString()}`);
 
     let lastday = defulatConfig.simulationenddate;//new Date();
@@ -3619,6 +3792,7 @@ ${divider}
     const indexlog = kospitotalper && kosdaqtotalper ? ` vs ${(kospitotalper / monthtotalassets.length).toFixed(2)}%/${(kosdaqtotalper / monthtotalassets.length).toFixed(2)}%` : '';
     const logfinal = `${(totalper / monthtotalassets.length).toFixed(2)}%${indexlog}`;
     AddSimulationLog(`Injurance : ${GetInjurance(g_accountsimulation)}`);
+    AddSalaryPayoutFinalLog();
     AddSimulationLog(`complete dailysimulation 1month ${logfinal}`);
     AddSimulationLog(`[FINAL_TRACE] finalreport:${Date.now() - finalReportStartTime}ms`);
     printraptime();

@@ -17,6 +17,7 @@ const { GetYMD } = require('./tradeutilcommon');
 const {Issue_access_token, GetaccountGeneral, GetsnapshotaccountGeneral, GetIndexdatas,
     TopstocklistBA,LoadBADB, Opendaycheck
 } = require('./serverpacket')
+const { GetTodayTradeRows } = require('./today_tradelogs_api')
 const config = require("./config")
 const consts = require('./consts');
 const globalval = require('./globalval');
@@ -857,6 +858,21 @@ app.get('/cheat/printcheat', (req,res)=>{
     res.send(log);
 })
 
+
+
+app.get('/info/todaytradelogs', (req, res) => {
+    GetTodayTradeRows(req.query.db_id, req.query.date).then((resultdata) => {
+        if (resultdata && resultdata.error) {
+            const statusCode = resultdata.error === 'MISSING_DB_ID' || resultdata.error === 'INVALID_DATE' || resultdata.error === 'INVALID_DB_ID'
+                ? 400
+                : 500;
+            res.status(statusCode).send(resultdata);
+            return;
+        }
+
+        res.send(resultdata);
+    });
+})
 
 app.get('/info/indexdatalists', (req,res)=>{
     GetIndexdatas(req.query.db_id, req.query.ticker, req.query.startdate, req.query.enddate).then((resultdata)=>{

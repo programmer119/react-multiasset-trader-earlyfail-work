@@ -29,14 +29,6 @@ const readBoolEnv = (key, legacyKey, defaultValue = false) => {
     return JSON.parse(raw);
 };
 
-const readNumberEnv = (key, legacyKey, defaultValue = 0) => {
-    const raw = process.env[key] !== undefined
-        ? process.env[key]
-        : (legacyKey && process.env[legacyKey] !== undefined ? process.env[legacyKey] : defaultValue);
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : defaultValue;
-};
-
 const normalizeAssetDefenseMode = (value) => {
     const mode = String(value || '').trim();
     const validModes = new Set([
@@ -92,15 +84,9 @@ const useBlockSameDaySellCashOnTodayAssetDownValue = hasAssetDefenseMode
 const useAvgCurrentToPast4BelowPast6BuyBlockValue = hasAssetDefenseMode
     ? assetDefenseModeValue === 'avgCurrentToPast4BelowPast6BuyBlock'
     : readBoolEnv('useAvgCurrentToPast4BelowPast6BuyBlock', null, false);
-const useAvgCurrentToPast4BelowPast6SellCashBlockValue = hasAssetDefenseMode
-    ? assetDefenseModeValue === 'avgCurrentToPast4BelowPast6SellCashBlock'
-    : readBoolEnv('useAvgCurrentToPast4BelowPast6SellCashBlock', null, false);
 const useAssetUpBuyGateValue = hasAssetDefenseMode
     ? false
     : readBoolEnv('useassetupbuygate', null, false);
-const assetDefenseDayLockValue = readBoolEnv('assetDefenseDayLock', 'useAssetDefenseDayLock', false);
-const todayAssetDownFilterPercentValue = readNumberEnv('todayAssetDownFilterPercent', 'assetDefenseFilterPercent', 0);
-const todayAssetDownExitPercentValue = readNumberEnv('todayAssetDownExitPercent', 'assetDefenseExitPercent', 0);
 const defulatConfig = {
     db_id : process.env.DB_ID ? process.env.DB_ID : `${defaultid}_${mokstr}_kor`, // srhsha_${mokstr}_kor, srhsha_${mokstr}_naq, 
     port : process.env.PORT ? process.env.PORT : '4100', // 4100, 4200, 4017
@@ -122,9 +108,6 @@ const defulatConfig = {
     assetDefenseMode : assetDefenseModeValue || 'legacy', // 뷰어: 자산/당일매도현금 차단 모드
     assetDefenseBypassMode : normalizeAssetDefenseBypassMode(process.env.assetDefenseBypassMode), // 뷰어: 자산사용필터 우회 장세판단 모드
     salaryPayoutMode : normalizeSalaryPayoutMode(process.env.salaryPayoutMode), // 뷰어: 급여지급 모드
-    assetDefenseDayLock : assetDefenseDayLockValue, // 뷰어: 자산방어 조건이 한번 걸리면 당일 종료까지 고정
-    todayAssetDownFilterPercent : todayAssetDownFilterPercentValue, // 뷰어: 전일마감자산 대비 현재자산 수익률이 이 값 미만이면 당일현재자산하락 필터 진입
-    todayAssetDownExitPercent : todayAssetDownExitPercentValue, // 뷰어: 전일마감자산 대비 현재자산 수익률이 이 값 이상이면 당일현재자산하락 필터 탈출
     useassetupbuygate : useAssetUpBuyGateValue, // legacy: assetDefenseMode 사용 시 false 고정
     useBlockSameDaySellCashOnEquityWeakness : useBlockSameDaySellCashOnEquityWeaknessValue, // 뷰어: 전일/당일자산 하락시 당일매도현금 차단
     useBlockSameDaySellCashAlways : useBlockSameDaySellCashAlwaysValue, // 뷰어: 항상 당일매도현금 차단

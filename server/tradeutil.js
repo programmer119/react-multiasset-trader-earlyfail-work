@@ -24,6 +24,7 @@ const {GetProfitToLossPreset} = require('./profittolosspresets');
 const {GetEarlyProfitLockPreset} = require('./earlyprofitlockpresets');
 const {GetPartialEntryPreset} = require('./partialentrypresets');
 const assetBuyGate = require('./assetBuyGate');
+const foreignAbsorbFilter = require('./foreignAbsorbFilter');
 let cachedPartialEntryMode = undefined;
 let cachedPartialEntryPreset = null;
 let cachedPartialEntryModeKey = '';
@@ -2454,6 +2455,19 @@ const ProcessLong=(tradestock, curChartIdx, minutelongshort, averagebuyprice, ha
     if(defulatConfig.validrightsdays && tradestock.validrights == false)
         return false;
 
+    if(defulatConfig.useforeignabsorbfilter)
+    {
+        const foreignAbsorbResult = foreignAbsorbFilter.CheckForeignAbsorbBuyFilter(tradestock, curChartIdx, defulatConfig, AddSimulationLog);
+        if(!foreignAbsorbResult.pass)
+        {
+            if(defulatConfig.foreignabsorbfilterlog)
+                AddSimulationLog(`[FOREIGN_ABSORB_BLOCK] ${tradestock.ticker} ${tradestock.name} ${foreignAbsorbFilter.FormatForeignAbsorbFilterResult(foreignAbsorbResult)}`);
+            return false;
+        }
+        if(defulatConfig.foreignabsorbfilterlog)
+            AddSimulationLog(`[FOREIGN_ABSORB_PASS] ${tradestock.ticker} ${tradestock.name} ${foreignAbsorbFilter.FormatForeignAbsorbFilterResult(foreignAbsorbResult)}`);
+    }
+
     if(defulatConfig.usepersonstocktrade)
     {
         // if(!defulatConfig.usepersonstocktrade || rest.canbuy)
@@ -4642,6 +4656,7 @@ const GetAssetBuyGateOldCashRemaining = () => assetBuyGate.getOldCashRemaining()
 const RegisterAssetBuyGateSellCash = (addmoney) => assetBuyGate.registerSellCash(addmoney);
 const RegisterAssetBuyGateBuyCash = (buymoney) => assetBuyGate.registerBuyCash(buymoney);
 const IsAssetBuyGateConditionOkForTotal = (totalcapital) => assetBuyGate.isConditionOkForTotal(totalcapital);
+const ShouldBlockBuyByAssetDefenseModeForTotal = (totalcapital) => assetBuyGate.shouldBlockBuy(totalcapital);
 const GetAssetBuyGateCarryLockedCash = () => assetBuyGate.getCarryLockedCash();
 const ShouldSkipJiJiBuJinShortByAssetSellCashGate = (account, tradestockdic) => assetBuyGate.shouldSkipJiJiBuJinShort(account, tradestockdic, GetAllStockCapitalValue, GetCanUseCashAmount);
 
@@ -5550,12 +5565,18 @@ const RealTrade=(issimulation, apiserver, isPlayingCool, curchartdataidx, trades
     const assetBuyGateYesterdayUp = assetBuyGateState.yesterdayUp;
     const assetBuyGateTodayUp = assetBuyGateState.todayUp;
     const IsAssetBuyGateConditionOk = () => IsAssetBuyGateConditionOkForTotal(totalcapital);
-    const LogAssetBuyGateBuyBlock = (reason) => {
-        if(!useconsolelog)
-            return;
-        const timeString = GetLogDate(tradestock.chartdatas[chartindex]);
-        const logFields = assetBuyGate.getBuyBlockLogFields(totalcapital);
-        AddSimulationLog(`[ASSET_BUY_GATE_ALLBUY_BLOCK] ${timeString} ${reason} ${ticker} ${name} H:${logFields.condition.hasHistory ? 'Y' : 'N'} Y:${logFields.condition.yesterdayUp ? 'KEEP' : 'DN'}(${logFields.condition.state.yesterdayDate || '-'}/${logFields.yChange}) T:${logFields.condition.todayUp ? 'KEEP' : 'DN'} start:${Math.round(logFields.condition.startCapital)} cur:${Math.round(totalcapital)} cash:${Math.round(canusecashamount)}`);
+    const ShouldBlockBuyByAssetDefenseMode = () => ShouldBlockBuyByAssetDefenseModeForTotal(totalcapital);
+    const LogAssetBuyGateBuyBlockTransition = (reason) => {
+        assetBuyGate.logBuyBlockTransition({
+            totalcapital,
+            useconsolelog,
+            timeString:GetLogDate(tradestock.chartdatas[chartindex]),
+            reason,
+            ticker,
+            name,
+            canusecashamount,
+            addSimulationLog:AddSimulationLog,
+        });
     };
     const GetAssetBuyGateAllowedBuyAmount = (reason, requestedBuyAmount, buyMoneyByOneStock) => {
         return assetBuyGate.getAllowedBuyAmount({
@@ -5715,11 +5736,10 @@ const RealTrade=(issimulation, apiserver, isPlayingCool, curchartdataidx, trades
     realTradeProfileStart = realTradeProfile ? Date.now() : 0;
     if(partialAddPlan)
     {
-        if(defulatConfig.useassetupbuygate && !IsAssetBuyGateConditionOk())
-        {
-            LogAssetBuyGateBuyBlock('partial-add');
+        const partialAddBuyBlocked = ShouldBlockBuyByAssetDefenseMode();
+        LogAssetBuyGateBuyBlockTransition('partial-add');
+        if(partialAddBuyBlocked)
             return false;
-        }
         const partialMacdlongshort = 'FORCE_RSI_LONG_PARTIAL_ADD';
         const allowedPartialBuyAmount = GetAssetBuyGateAllowedBuyAmount('partial-add', partialAddPlan.buyamount, GetBuyMoney(latestclose));
         if(allowedPartialBuyAmount <= 0)
@@ -5759,11 +5779,10 @@ const RealTrade=(issimulation, apiserver, isPlayingCool, curchartdataidx, trades
     realTradeProfileStart = realTradeProfile ? Date.now() : 0;
     if(IsLongStyle(macdlongshort) && trademarkbuy)
     {
-        if(defulatConfig.useassetupbuygate && !IsAssetBuyGateConditionOk())
-        {
-            LogAssetBuyGateBuyBlock('buy');
+        const newBuyBlocked = ShouldBlockBuyByAssetDefenseMode();
+        LogAssetBuyGateBuyBlockTransition('buy');
+        if(newBuyBlocked)
             return false;
-        }
         if(defulatConfig.lockbuy)
             return false;
         if(defulatConfig.usemarketstrengthbuyfilter && IsMarketStrengthBuyBlocked(tradestock, chartindex))

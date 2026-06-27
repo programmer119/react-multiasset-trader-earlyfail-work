@@ -1,0 +1,145 @@
+diff -ruN '--exclude=foreign_absorb_filter_patch.diff' /mnt/data/work_foreign_orig_patch/FOREIGN_ABSORB_FILTER_README.md /mnt/data/work_foreign_const2/FOREIGN_ABSORB_FILTER_README.md
+--- /mnt/data/work_foreign_orig_patch/FOREIGN_ABSORB_FILTER_README.md	2026-06-23 04:33:08.000000000 +0000
++++ /mnt/data/work_foreign_const2/FOREIGN_ABSORB_FILTER_README.md	2026-06-23 05:09:13.014780495 +0000
+@@ -3,7 +3,7 @@
+ ## What changed
+ 
+ - Added `server/foreignAbsorbFilter.js`.
+-- Added config/env options in `server/util.js`.
++- Added config options in `server/util.js`.
+ - Connected the filter in `ProcessLong()` inside `server/tradeutil.js`.
+ 
+ This is a location-A candidate gate. It runs before long signal generation branches, so a stock that fails the filter cannot create a normal long signal.
+@@ -18,17 +18,13 @@
+ outputs/stock-series/440110.js
+ ```
+ 
+-Set either:
++The stock-series folder is hardcoded in `server/util.js` as:
+ 
+-```powershell
+-$env:foreignabsorbseriesdir="C:\Users\srhsh\Documents\Codex\2026-06-03\halbae-strategy-designer\outputs\stock-series"
++```js
++const FOREIGN_ABSORB_SERIES_DIR = 'C:/Users/srhsh/Documents/Codex/2026-06-03/halbae-strategy-designer/outputs/stock-series';
+ ```
+ 
+-or:
+-
+-```powershell
+-$env:foreignabsorbdatadir="C:\Users\srhsh\Documents\Codex\2026-06-03\halbae-strategy-designer"
+-```
++No `foreignabsorbseriesdir` PowerShell environment variable is required.
+ 
+ ## Enable
+ 
+@@ -60,12 +56,12 @@
+ exclude 99.9%+ foreign ownership outliers
+ ```
+ 
+-## Env options
++## Options
++
++`foreignabsorbseriesdir` is not an environment variable anymore. It is fixed in `server/util.js`.
+ 
+ ```text
+ useforeignabsorbfilter=false
+-foreignabsorbseriesdir=
+-foreignabsorbdatadir=
+ foreignabsorblookbackdays=20
+ foreignabsorbminshareincreasep=0.3
+ foreignabsorbminincreasedays=8
+diff -ruN '--exclude=foreign_absorb_filter_patch.diff' /mnt/data/work_foreign_orig_patch/server/foreignAbsorbFilter.js /mnt/data/work_foreign_const2/server/foreignAbsorbFilter.js
+--- /mnt/data/work_foreign_orig_patch/server/foreignAbsorbFilter.js	2026-06-23 04:33:08.000000000 +0000
++++ /mnt/data/work_foreign_const2/server/foreignAbsorbFilter.js	2026-06-23 05:09:13.014186940 +0000
+@@ -49,29 +49,28 @@
+     return out;
+ }
+ 
+-function getCandidateSeriesDirs() {
+-    const envDir = process.env.foreignabsorbseriesdir || process.env.foreignownershipseriesdir || '';
+-    const envDataDir = process.env.foreignabsorbdatadir || process.env.foreignownershipdatadir || '';
++function getCandidateSeriesDirs(config) {
++    const cfg = config || {};
++    const cfgDir = cfg.foreignabsorbseriesdir || '';
++    const cfgDataDir = cfg.foreignabsorbdatadir || '';
+     const dirs = [];
+ 
+-    if (envDir) dirs.push(envDir);
+-    if (envDataDir) {
+-        dirs.push(envDataDir);
+-        dirs.push(path.join(envDataDir, 'stock-series'));
+-        dirs.push(path.join(envDataDir, 'outputs', 'stock-series'));
++    if (cfgDir) dirs.push(cfgDir);
++    if (cfgDataDir) {
++        dirs.push(cfgDataDir);
++        dirs.push(path.join(cfgDataDir, 'stock-series'));
++        dirs.push(path.join(cfgDataDir, 'outputs', 'stock-series'));
+     }
+ 
+     dirs.push(path.resolve(__dirname, '..', 'outputs', 'stock-series'));
+     dirs.push(path.resolve(__dirname, '..', '..', 'halbae-strategy-designer', 'outputs', 'stock-series'));
+-    dirs.push(path.resolve('C:/Users/srhsh/Documents/Codex/2026-06-03/halbae-strategy-designer/outputs/stock-series'));
+-    dirs.push(path.resolve('C:/Users/user/Documents/Codex/2026-06-03/halbae-strategy-designer/outputs/stock-series'));
+ 
+     return uniqueExistingDirs(dirs);
+ }
+ 
+-function resolveSeriesDir() {
++function resolveSeriesDir(config) {
+     if (resolvedSeriesDir !== null) return resolvedSeriesDir;
+-    const dirs = getCandidateSeriesDirs();
++    const dirs = getCandidateSeriesDirs(config);
+     for (let i = 0; i < dirs.length; i++) {
+         const dir = dirs[i];
+         try {
+@@ -128,15 +127,15 @@
+     return out;
+ }
+ 
+-function loadSeries(code, logFn) {
++function loadSeries(code, logFn, config) {
+     if (!code) return null;
+     if (Object.prototype.hasOwnProperty.call(seriesCache, code)) return seriesCache[code];
+ 
+-    const dir = resolveSeriesDir();
++    const dir = resolveSeriesDir(config);
+     if (!dir) {
+         if (!loggedPathError) {
+             loggedPathError = true;
+-            if (typeof logFn === 'function') logFn(`[FOREIGN_ABSORB_DATA_PATH_MISSING] set foreignabsorbseriesdir or foreignabsorbdatadir to halbae outputs/stock-series`);
++            if (typeof logFn === 'function') logFn(`[FOREIGN_ABSORB_DATA_PATH_MISSING] check defulatConfig.foreignabsorbseriesdir in util.js`);
+         }
+         seriesCache[code] = null;
+         return null;
+@@ -196,7 +195,7 @@
+     const curYmd = toYmd(cur && cur.date);
+     if (!curYmd) return buildResult(false, 'missing-current-date', {code});
+ 
+-    const points = loadSeries(code, logFn);
++    const points = loadSeries(code, logFn, defulatConfig);
+     if (!points) return buildResult(false, 'missing-series', {code, curYmd});
+ 
+     const lookbackDays = Math.max(2, Number(defulatConfig.foreignabsorblookbackdays) || 20);
+diff -ruN '--exclude=foreign_absorb_filter_patch.diff' /mnt/data/work_foreign_orig_patch/server/util.js /mnt/data/work_foreign_const2/server/util.js
+--- /mnt/data/work_foreign_orig_patch/server/util.js	2026-06-23 04:33:08.000000000 +0000
++++ /mnt/data/work_foreign_const2/server/util.js	2026-06-23 05:09:13.013276690 +0000
+@@ -11,6 +11,8 @@
+ const fs = require('fs');
+ require('dotenv').config(); // ?먮뒗 import 'dotenv/config' (ESM)
+ 
++const FOREIGN_ABSORB_SERIES_DIR = 'C:/Users/srhsh/Documents/Codex/2026-06-03/halbae-strategy-designer/outputs/stock-series';
++
+ const mokstr = JSON.parse(process.env.ismock)  ? 'mok' : 'real';
+ const defaultid = process.env.defaultid;
+ // console.log('Loaded ISMOCK:', process.env.ismock, mokstr); // ?붾쾭源?
+@@ -296,8 +298,8 @@
+     useearlyprofitlockcash:process.env.useearlyprofitlockcash ? process.env.useearlyprofitlockcash : '',
+     usemarketstrengthbuyfilter:process.env.usemarketstrengthbuyfilter ? process.env.usemarketstrengthbuyfilter : '',
+     useforeignabsorbfilter: JSON.parse(process.env.useforeignabsorbfilter ? process.env.useforeignabsorbfilter : false),
+-    foreignabsorbseriesdir: process.env.foreignabsorbseriesdir ? process.env.foreignabsorbseriesdir : '',
+-    foreignabsorbdatadir: process.env.foreignabsorbdatadir ? process.env.foreignabsorbdatadir : '',
++    foreignabsorbseriesdir: FOREIGN_ABSORB_SERIES_DIR,
++    foreignabsorbdatadir: '',
+     foreignabsorblookbackdays: Number(process.env.foreignabsorblookbackdays ? process.env.foreignabsorblookbackdays : 20),
+     foreignabsorbminshareincreasep: Number(process.env.foreignabsorbminshareincreasep ? process.env.foreignabsorbminshareincreasep : 0.3),
+     foreignabsorbminincreasedays: Number(process.env.foreignabsorbminincreasedays ? process.env.foreignabsorbminincreasedays : 8),
